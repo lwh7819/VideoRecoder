@@ -92,7 +92,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         try {
             Window window = getWindow();
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS|WindowManager.LayoutParams.FLAG_FULLSCREEN);
+                window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS | WindowManager.LayoutParams.FLAG_FULLSCREEN);
                 window.setStatusBarColor(Color.TRANSPARENT);
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
                 // 设置状态栏透明
@@ -236,6 +236,15 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
 
             @Override
             public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                mSurfaceHolder = holder;
+                try {
+                    mCamera.stopPreview();
+                    mCamera.setPreviewDisplay(mSurfaceHolder);
+                    mCamera.startPreview();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    ToastUtils.shortShow(RecordVideoDialogActivity.this, "相机无法使用");
+                }
                 Log.d("TAG", "RecordVideoDialogActivity->surfaceChanged(): ");
             }
 
@@ -335,7 +344,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                     //判断是否进行视频合并
                     if ("".equals(saveVideoPath)) {
                         saveVideoPath = currentVideoFilePath;
-                    }else {
+                    } else {
                         mergeRecordVideoFile();
                     }
                 }
@@ -464,7 +473,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
      * 播放视频
      */
     private void playVideo() {
-        if (TextUtils.isEmpty(currentVideoFilePath))
+        if (TextUtils.isEmpty(saveVideoPath))
             return;
         mMediaPlayer = new MediaPlayer();
         mMediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
@@ -479,8 +488,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             }
         });
         try {
-            Log.e("lwc", "play" + currentVideoFilePath);
-            mMediaPlayer.setDataSource(currentVideoFilePath);
+            Log.e("lwc", "play" + saveVideoPath);
+            mMediaPlayer.setDataSource(saveVideoPath);
         } catch (IOException e) {
             e.printStackTrace();
             return;
