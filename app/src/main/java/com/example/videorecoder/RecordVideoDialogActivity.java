@@ -10,6 +10,7 @@ import android.media.CamcorderProfile;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
+import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
@@ -61,11 +62,11 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     private int mCurModel;
     private static final int MODEL_DEFAULT = 0;
     private static final int MODEL_RECORDING = 1;
-    private static final int MODEL_RECORD_END = 2;
-    private static final int MODEL_RECORD_PAUSE = 6;
-    private static final int MODEL_PLAYING = 3;
-    private static final int MODEL_PLAY_PAUSE = 4;
-    private static final int MODEL_PLAY_END = 5;
+    private static final int MODEL_RECORD_PAUSE = 2;
+    private static final int MODEL_RECORD_END = 3;
+    private static final int MODEL_PLAYING = 4;
+    private static final int MODEL_PLAY_PAUSE = 5;
+    private static final int MODEL_PLAY_END = 6;
 
 
     //	private PrepareLessonsManager prepareLessonsManager;
@@ -86,6 +87,9 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
 
     private String currentVideoFilePath;
     private String saveVideoPath = "";
+    private int currentRecordSecond = 0;
+    private int startRecordSecond = 0;
+    private MergeFileAsyncTask asyncTask;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -136,6 +140,36 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     }
 
     @Override
+    protected void onPause() {
+        super.onPause();
+        if (mCurModel == MODEL_RECORDING) {
+            pauseRecordVideo();
+            stopProgress();
+            //判断是否进行视频合并
+            if ("".equals(saveVideoPath)) {
+                saveVideoPath = currentVideoFilePath;
+            } else {
+                mergeRecordVideoFile();
+            }
+            mCurModel = MODEL_RECORD_END;
+            mCamera.lock();
+            setProgressText(0);
+            ivRecord.setVisibility(View.GONE);
+            tvReRecord.setVisibility(View.VISIBLE);
+            currentRecordSecond = 0;
+            startRecordSecond = 0;
+        } else if (mCurModel == MODEL_RECORD_PAUSE) {
+            mCurModel = MODEL_RECORD_END;
+            mCamera.lock();
+            setProgressText(0);
+            ivRecord.setVisibility(View.GONE);
+            tvReRecord.setVisibility(View.VISIBLE);
+            currentRecordSecond = 0;
+            startRecordSecond = 0;
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         if (mRecorder != null) {
@@ -159,6 +193,12 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             mHandler.removeCallbacks(recordProgressTextTask);
             mHandler.removeCallbacks(playProgressTextTask);
             mHandler = null;
+        }
+        if (asyncTask != null) {
+            if (!asyncTask.isCancelled()) {
+                asyncTask.cancel(true);
+            }
+            asyncTask = null;
         }
         recordProgressTextTask = null;
         playProgressTextTask = null;
@@ -223,38 +263,36 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             public void surfaceCreated(SurfaceHolder holder) {
                 mSurfaceHolder = holder;
                 onSurfaceCreate();
-//                if (mCamera != null && mCurModel == MODEL_DEFAULT) {
-//                    try {
-//                        mCamera.setPreviewDisplay(mSurfaceHolder);
-//                        mCamera.startPreview();
-//                    } catch (IOException e) {
-//                        e.printStackTrace();
-//                        ToastUtils.shortShow(RecordVideoDialogActivity.this, "相机无法使用");
-//                    }
-//                }
             }
 
             @Override
             public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                Log.d("TAG", "RecordVideoDialogActivity->surfaceChanged(): ");
                 mSurfaceHolder = holder;
                 try {
-                    mCamera.stopPreview();
-                    mCamera.setPreviewDisplay(mSurfaceHolder);
-                    mCamera.startPreview();
+                    if (mCamera != null) {
+                        mCamera.setPreviewDisplay(mSurfaceHolder);
+                        mCamera.startPreview();
+                    }
                 } catch (IOException e) {
                     e.printStackTrace();
                     ToastUtils.shortShow(RecordVideoDialogActivity.this, "相机无法使用");
                 }
-                Log.d("TAG", "RecordVideoDialogActivity->surfaceChanged(): ");
             }
 
             @Override
             public void surfaceDestroyed(SurfaceHolder holder) {
                 Log.d("TAG", "RecordVideoDialogActivity->surfaceDestroyed(): ");
+                if (mCamera != null) {
+                    mCamera.stopPreview();
+                }
             }
         });
     }
 
+    /**
+     * 开启摄像头并绑定surfaceHolder并开启预览
+     */
     private void onSurfaceCreate() {
         try {
             if (cameraPosition == 1) {
@@ -270,21 +308,9 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         }
     }
 
-
-    private void initCamera() {
-        try {
-            mCamera = Camera.open();
-        } catch (Exception e) {
-            ToastUtils.shortShow(this, "相机无法使用，请稍候再试");
-            return;
-        }
-        if (mCamera == null) {
-            ToastUtils.shortShow(this, "相机无法使用，请稍候再试");
-            return;
-        }
-        setCameraParams();
-    }
-
+    /**
+     * 创建MediaPlayer
+     */
     private void initRecord() {
         // 创建MediaPlayer对象
         mRecorder = new MediaRecorder();
@@ -326,6 +352,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                 }
                 break;
             case R.id.ivRecord:
+                ivChangeVideo.setVisibility(View.GONE);
                 if (mCurModel == MODEL_DEFAULT) {
                     if (mCanUseRecord) {
                         try {
@@ -340,6 +367,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                         ToastUtils.shortShow(this, "录制准备中，请稍后再试");
                     }
                 } else if (mCurModel == MODEL_RECORDING) {
+                    currentRecordSecond = 0;
+                    startRecordSecond = 0;
                     stopRecordVideo();
                     //判断是否进行视频合并
                     if ("".equals(saveVideoPath)) {
@@ -357,6 +386,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                 break;
             case R.id.ivStartStop:
                 if (mCurModel == MODEL_RECORDING) {
+                    startRecordSecond = currentRecordSecond;
                     ivStartStop.setVisibility(View.VISIBLE);
                     ivStartStop.setBackgroundResource(R.mipmap.start);
                     pauseRecordVideo();
@@ -512,7 +542,10 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
      * 重新录制
      */
     private void reRecordVideo() {
+        currentRecordSecond = 0;
+        startRecordSecond = 0;
         saveVideoPath = "";
+        ivChangeVideo.setVisibility(View.VISIBLE);
         initRecord();
         if (mCurModel >= MODEL_PLAYING && mMediaPlayer != null) {
             mMediaPlayer.release();
@@ -600,8 +633,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     }
 
     private void setConfigRecord() {
-        // 创建MediaPlayer对象
-        mRecorder = new MediaRecorder();
+        initRecord();
         mCamera.unlock();
         mRecorder.setCamera(mCamera);
         // 设置从麦克风采集声音(或来自录像机的声音AudioSource.CAMCORDER)
@@ -716,7 +748,9 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         @Override
         public void run() {
             int second = (int) ((System.currentTimeMillis() - mStartTime) / 1000);
-            setProgressText(second);
+            int recordSecond = startRecordSecond + second;
+            currentRecordSecond = recordSecond;
+            setProgressText(recordSecond);
             mHandler.postDelayed(recordProgressTextTask, 200);
         }
     }
@@ -766,7 +800,6 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                         mCamera = deal(mCamera);
                         mCamera.setPreviewDisplay(mSurfaceHolder);//通过surfaceview显示取景画面
                     } catch (IOException e) {
-                        // TODO Auto-generated catch block
                         e.printStackTrace();
                     }
                     mCamera.startPreview();//开始预览
@@ -786,7 +819,6 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                         mCamera = deal(mCamera);
                         mCamera.setPreviewDisplay(mSurfaceHolder);// 通过surfaceview显示取景画面
                     } catch (IOException e) {
-                        // TODO Auto-generated catch block
                         e.printStackTrace();
                     }
                     mCamera.startPreview();// 开始预览
@@ -805,10 +837,10 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         Size pictureSize = null;
         Size previewSize = null;
         Camera.Parameters parameters = camera.getParameters();
-        parameters.set("orientation", "portrait");
+        parameters.set("orientation", "portrait"); // 设置竖屏
         //设置聚焦模式
         List<String> modes = parameters.getSupportedFocusModes();
-        if (modes.contains("continuous-video"))
+        if (modes.contains("continuous-video")) // 如果硬件支持持续自动对焦就用，没有就用默认的模式
             parameters.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
         //缩短Recording启动时间
         parameters.setRecordingHint(true);
@@ -817,7 +849,9 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             parameters.setVideoStabilization(true);
         // 设置旋转代码
         parameters.setRotation(90);
+        // 获取硬件支持的录制像素列表
         List<Size> supportedPictureSizes = SupportedSizesReflect.getSupportedPictureSizes(parameters);
+        // 获取硬件支持的预览像素列表
         List<Size> supportedPreviewSizes = SupportedSizesReflect.getSupportedPreviewSizes(parameters);
         for (Size size : supportedPictureSizes) {
             float width = size.width;
@@ -832,7 +866,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             Log.e("lwh", "\nPreview proportion: " + proportion);
         }
 
-        if (supportedPictureSizes != null && supportedPreviewSizes != null && supportedPictureSizes.size() > 0 && supportedPreviewSizes.size() > 0) {
+        if (supportedPictureSizes != null && supportedPreviewSizes != null &&
+                supportedPictureSizes.size() > 0 && supportedPreviewSizes.size() > 0) {
 
             pictureSize = supportedPictureSizes.get(0);
             int maxSize = 1920;
@@ -867,6 +902,13 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         return camera;
     }
 
+    /**
+     * 获取最匹配surfaceView像素尺寸的硬件支持的预览像素尺寸
+     * @param sizes 硬件支持的像素尺寸列表
+     * @param w surfaceView的宽
+     * @param h surfaceView的高
+     * @return Camera.Size
+     */
     private Size getOptimalPreviewSize(List<Size> sizes, int w, int h) {
         final double ASPECT_TOLERANCE = 0.1;
         double targetRatio = (double) h / w; //因为设置了竖屏所以宽高对调一下（android系统相机默认是竖屏的）
@@ -906,26 +948,15 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
      * 合并录像视频方法
      */
     private void mergeRecordVideoFile() {
-        new Thread(new Runnable() {
+        asyncTask = new MergeFileAsyncTask(this) {
             @Override
-            public void run() {
-                try {
-                    String[] str = new String[]{saveVideoPath, currentVideoFilePath};
-                    //将2个视频文件合并到 append.mp4文件下
-                    VideoUtils.appendVideo(RecordVideoDialogActivity.this, getSDPath(RecordVideoDialogActivity.this) + "append.mp4", str);
-                    File reName = new File(saveVideoPath);
-                    File f = new File(getSDPath(RecordVideoDialogActivity.this) + "append.mp4");
-                    //再将合成的append.mp4视频文件 移动到 saveVideoPath 路径下
-                    f.renameTo(reName);
-                    if (reName.exists()) {
-                        f.delete();
-                        new File(currentVideoFilePath).delete();
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
+            void onComplete() {
+                if (asyncTask != null && !asyncTask.isCancelled())
+                asyncTask.cancel(true);
+                asyncTask = null;
             }
-        }).start();
+        };
+        asyncTask.execute(saveVideoPath, currentVideoFilePath);
     }
 
     /**
@@ -947,5 +978,48 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
 
     private String getVideoName() {
         return "VID_" + new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date()) + ".mp4";
+    }
+
+    public abstract static class MergeFileAsyncTask extends AsyncTask<String, Integer, Object> {
+        private Context context;
+
+        public MergeFileAsyncTask(Context context) {
+            this.context = context;
+        }
+
+        @Override
+        protected Object doInBackground(String... strings) {
+            try {
+                String[] str = new String[]{strings[0], strings[1]};
+                //将2个视频文件合并到 append.mp4文件下
+                VideoUtils.appendVideo(context, getSDPath(context) + "append.mp4", str);
+                File reName = new File(strings[0]);
+                File f = new File(getSDPath(context) + "append.mp4");
+                //再将合成的append.mp4视频文件 移动到 saveVideoPath 路径下
+                f.renameTo(reName);
+                if (reName.exists()) {
+                    f.delete();
+                    new File(strings[1]).delete();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }
+
+        @Override
+        protected void onProgressUpdate(Integer... values) {
+            super.onProgressUpdate(values);
+            Log.e("lvweihao", values + "");
+        }
+
+        @Override
+        protected void onPostExecute(Object o) {
+            super.onPostExecute(o);
+            onComplete();
+            Log.e("lvweihao", "onComplete");
+        }
+
+        void onComplete(){}
     }
 }
