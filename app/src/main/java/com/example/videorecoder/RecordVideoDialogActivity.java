@@ -1,6 +1,8 @@
 package com.example.videorecoder;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Color;
@@ -16,6 +18,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.MediaStore;
 import android.support.v7.app.AppCompatActivity;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
@@ -107,6 +110,14 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         }
         super.onCreate(savedInstanceState);
         setContentView(R.layout.dialog_record_video);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[] {Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.RECORD_AUDIO}, 1);
+            }
+        }
         init();
     }
 
@@ -166,6 +177,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             tvReRecord.setVisibility(View.VISIBLE);
             currentRecordSecond = 0;
             startRecordSecond = 0;
+        } else if (mCurModel == MODEL_PLAYING) {
+            pauseVideo();
         }
     }
 
@@ -267,22 +280,27 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
 
             @Override
             public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-                Log.d("TAG", "RecordVideoDialogActivity->surfaceChanged(): ");
+                Log.d("TAG", "RecordVideoDialogActivity->surfaceChanged(): " + holder.toString());
                 mSurfaceHolder = holder;
                 try {
                     if (mCamera != null) {
-                        mCamera.setPreviewDisplay(mSurfaceHolder);
-                        mCamera.startPreview();
+                        if (mCurModel != MODEL_PLAYING && mCurModel != MODEL_PLAY_PAUSE && mCurModel != MODEL_PLAY_END) {
+                            mCamera.setPreviewDisplay(mSurfaceHolder);
+                            mCamera.startPreview();
+                        }
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
                     ToastUtils.shortShow(RecordVideoDialogActivity.this, "相机无法使用");
                 }
+                if (mCurModel == MODEL_PLAY_PAUSE) {
+                    rePlayVideo();
+                }
             }
 
             @Override
             public void surfaceDestroyed(SurfaceHolder holder) {
-                Log.d("TAG", "RecordVideoDialogActivity->surfaceDestroyed(): ");
+                Log.d("TAG", "RecordVideoDialogActivity->surfaceDestroyed(): " + holder.toString());
                 if (mCamera != null) {
                     mCamera.stopPreview();
                 }
@@ -369,12 +387,30 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                 } else if (mCurModel == MODEL_RECORDING) {
                     currentRecordSecond = 0;
                     startRecordSecond = 0;
+                    ivStartStop.setVisibility(View.GONE);
                     stopRecordVideo();
                     //判断是否进行视频合并
                     if ("".equals(saveVideoPath)) {
                         saveVideoPath = currentVideoFilePath;
                     } else {
                         mergeRecordVideoFile();
+                    }
+                } else if (mCurModel == MODEL_RECORD_PAUSE) {
+                    currentRecordSecond = 0;
+                    startRecordSecond = 0;
+                    ivStartStop.setVisibility(View.GONE);
+                    if (mCamera != null) {
+                        mCamera.stopPreview();
+                        try {
+                            mCamera.setPreviewDisplay(null);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                        ivPlay.setVisibility(View.VISIBLE);
+                        ivPlay.setImageResource(R.mipmap.bt_play_square);
+                        ivRecord.setVisibility(View.GONE);
+                        tvReRecord.setVisibility(View.VISIBLE);
+                        mCurModel = MODEL_RECORD_END;
                     }
                 }
                 break;
@@ -505,6 +541,14 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     private void playVideo() {
         if (TextUtils.isEmpty(saveVideoPath))
             return;
+        if (mCamera != null) {
+            mCamera.stopPreview();
+            try {
+                mCamera.setPreviewDisplay(null);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
         mMediaPlayer = new MediaPlayer();
         mMediaPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
             @Override
@@ -524,7 +568,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             e.printStackTrace();
             return;
         }
-        mMediaPlayer.setDisplay(svVideo.getHolder());
+        mMediaPlayer.setDisplay(mSurfaceHolder);
         try {
             mMediaPlayer.prepare();
         } catch (IOException e) {
@@ -568,7 +612,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     }
 
     private void setProgressText(int cur) {
-        tvVideoTime.setText(String.format(this.getResources().getString(R.string.second), cur));
+//        tvVideoTime.setText(String.format(this.getResources().getString(R.string.second), cur));
+        tvVideoTime.setText(formatTime(cur));
     }
 
     /**
@@ -640,22 +685,24 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         mRecorder.setAudioSource(MediaRecorder.AudioSource.DEFAULT);
         // 设置从摄像头采集图像
         mRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+        // 设置输出文件
+        mRecorder.setOutputFile(currentVideoFilePath);
         // 设置视频文件的输出格式
         // 必须在设置声音编码格式、图像编码格式之前设置
         mRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        // 设置输出文件
-        mRecorder.setOutputFile(currentVideoFilePath);
         // 设置声音编码的格式
         mRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
         // 设置图像编码的格式
         mRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-        CamcorderProfile camcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
-        // 设置视频分辨率
-        if (cameraPosition == 1) {
-            mRecorder.setVideoSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
+        if (CamcorderProfile.hasProfile(CamcorderProfile.QUALITY_480P)) {
+            CamcorderProfile camcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
+            // 设置视频分辨率
+            if (cameraPosition == 1) {
+                mRecorder.setVideoSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
+            }
+            // 每秒帧
+            mRecorder.setVideoFrameRate(camcorderProfile.videoFrameRate);
         }
-        // 每秒帧
-        mRecorder.setVideoFrameRate(camcorderProfile.videoFrameRate);
         // 设置比特率
         mRecorder.setVideoEncodingBitRate(1024 * 1024);
         mRecorder.setMaxDuration(60 * 60 * 1000);
@@ -663,7 +710,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             // 默认竖屏
             mRecorder.setOrientationHint(90);
         } else {
-            mRecorder.setOrientationHint(270);
+//            mRecorder.setOrientationHint(270); // 2 3代
+            mRecorder.setOrientationHint(90); // 4代
         }
         mRecorder.setOnInfoListener(new MediaRecorder.OnInfoListener() {
             @Override
@@ -804,6 +852,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                     }
                     mCamera.startPreview();//开始预览
                     cameraPosition = 0;
+//                    mCamera.setDisplayOrientation(90); // 2 3代
+                    mCamera.setDisplayOrientation(270); // 4代
                     break;
                 }
             } else {
@@ -847,8 +897,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         //是否支持影像稳定能力，支持则开启
         if (parameters.isVideoStabilizationSupported())
             parameters.setVideoStabilization(true);
-        // 设置旋转代码
-        parameters.setRotation(90);
+//        // 设置旋转代码
+//        parameters.setRotation(90);
         // 获取硬件支持的录制像素列表
         List<Size> supportedPictureSizes = SupportedSizesReflect.getSupportedPictureSizes(parameters);
         // 获取硬件支持的预览像素列表
@@ -910,6 +960,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
      * @return Camera.Size
      */
     private Size getOptimalPreviewSize(List<Size> sizes, int w, int h) {
+        final int HIGHT_WIDTH_DIFF = 500;
         final double ASPECT_TOLERANCE = 0.1;
         double targetRatio = (double) h / w; //因为设置了竖屏所以宽高对调一下（android系统相机默认是竖屏的）
         if (sizes == null)
@@ -918,7 +969,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         Size optimalSize = null;
         double minDiff = Double.MAX_VALUE;
 
-        int targetHeight = h;
+        int targetHeight = w;
 
         // 根据屏宽比和像素大小一起比较取出最优支持的屏宽size
         for (Size size : sizes) {
@@ -928,6 +979,10 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             if (Math.abs(size.height - targetHeight) < minDiff) {
                 optimalSize = size;
                 minDiff = Math.abs(size.height - targetHeight);
+                if (minDiff > HIGHT_WIDTH_DIFF) {
+                    //如果比例是比较符合但像素差太远那就摒弃用这个
+                    optimalSize = null;
+                }
             }
         }
 
@@ -942,6 +997,39 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             }
         }
         return optimalSize;
+    }
+
+    private String formatTime(int second) {
+        int sec = 0;
+        int min = 0;
+        int hour = 0;
+        if (second < 60) {
+            sec = second;
+            min = 0;
+            hour = 0;
+            return numFormat(sec) + "″";
+        }
+        if (second >= 60 && second < 3600) {
+            min = second / 60;
+            sec = second - min * 60;
+            return numFormat(min) + ":" + numFormat(sec) + "″";
+        }
+        if (second >= 3600) {
+            hour = second / 3600;
+            min = (second - hour * 3600) / 60;
+            sec = second - (hour * 3600 + min * 60);
+            return numFormat(hour) + ":" + numFormat(min) + ":" + numFormat(sec) + "″";
+        }
+        return "00";
+    }
+
+    private String numFormat(int num) {
+        StringBuffer sb = new StringBuffer("0");
+        if (num < 10) {
+            return sb.append(num).toString();
+        } else {
+            return String.valueOf(num);
+        }
     }
 
     /**
