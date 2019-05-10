@@ -687,24 +687,26 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         mRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
         // 设置输出文件
         mRecorder.setOutputFile(currentVideoFilePath);
-        // 设置视频文件的输出格式
-        // 必须在设置声音编码格式、图像编码格式之前设置
-        mRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        // 设置声音编码的格式
-        mRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-        // 设置图像编码的格式
-        mRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-        if (CamcorderProfile.hasProfile(CamcorderProfile.QUALITY_480P)) {
-            CamcorderProfile camcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
-            // 设置视频分辨率
-            if (cameraPosition == 1) {
-                mRecorder.setVideoSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
-            }
-            // 每秒帧
-            mRecorder.setVideoFrameRate(camcorderProfile.videoFrameRate);
-        }
-        // 设置比特率
-        mRecorder.setVideoEncodingBitRate(1024 * 1024);
+//        // 设置视频文件的输出格式
+//        // 必须在设置声音编码格式、图像编码格式之前设置
+//        mRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+//        // 设置声音编码的格式
+//        mRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+//        // 设置图像编码的格式
+//        mRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+//        if (CamcorderProfile.hasProfile(CamcorderProfile.QUALITY_480P)) {
+//            CamcorderProfile camcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
+//            // 设置视频分辨率
+//            if (cameraPosition == 1) {
+//                mRecorder.setVideoSize(camcorderProfile.videoFrameWidth, camcorderProfile.videoFrameHeight);
+//            }
+//            // 每秒帧
+//            mRecorder.setVideoFrameRate(camcorderProfile.videoFrameRate);
+//        }
+//        // 设置比特率
+//        mRecorder.setVideoEncodingBitRate(15 * 1024 * 1024);
+        CamcorderProfile camcorderProfile = CamcorderProfile.get(CamcorderProfile.QUALITY_480P);
+        mRecorder.setProfile(camcorderProfile);
         mRecorder.setMaxDuration(60 * 60 * 1000);
         if (cameraPosition == 1) {
             // 默认竖屏
