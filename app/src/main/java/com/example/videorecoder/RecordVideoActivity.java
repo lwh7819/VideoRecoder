@@ -3,10 +3,12 @@ package com.example.videorecoder;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.hardware.Camera;
 import android.hardware.Camera.Size;
 import android.media.CamcorderProfile;
+import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
 import android.os.AsyncTask;
@@ -25,6 +27,7 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -37,7 +40,7 @@ import java.util.Date;
 import java.util.List;
 
 
-public class RecordVideoDialogActivity extends AppCompatActivity implements View.OnClickListener {
+public class RecordVideoActivity extends AppCompatActivity implements View.OnClickListener {
 
     private TextView tvSubmit;
 
@@ -53,6 +56,9 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
 
     private TextView tvReRecord;
 
+    private FrameLayout flVideo;
+
+    private File mVideoFile;
     private MediaRecorder mRecorder;
     private MediaPlayer mMediaPlayer;
     private long mStartTime;
@@ -67,12 +73,15 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     private static final int MODEL_PLAY_END = 6;
 
 
+    //	private PrepareLessonsManager prepareLessonsManager;
     private Camera mCamera;
     private SurfaceHolder mSurfaceHolder;
 
     private boolean mCanUseRecord = true;
     private boolean isClosed;
     private boolean mRecordIsStoping;
+    private boolean sUseingMic;
+    private boolean sUseingCamera;
     private ImageView ivChangeVideo;
     private ImageView ivStartStop;
 
@@ -179,11 +188,21 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         }
         recordProgressTextTask = null;
         playProgressTextTask = null;
+        sUseingMic = false;
+        sUseingCamera = false;
+//		prepareLessonsManager.resumeClosedMediaRedor();
         isClosed = true;
+//		prepareLessonsManager.setShowRecordVideoDialog(false);
     }
 
     private void init() {
         mHandler = new Handler(Looper.getMainLooper());
+        //关闭正在使用的mic。
+        //如果发生过关闭，就延迟能够开始录制的时间。因为快速调用会导致崩溃
+//		boolean hasCloseMic = prepareLessonsManager.closeUseingMediaRecord();
+//		if (hasCloseMic) {
+//			mCanUseRecord = false;
+//		}
         mHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
@@ -193,6 +212,10 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             }
         }, 1500);
 
+        sUseingMic = true;
+        sUseingCamera = true;
+//        initCamera();
+//        initRecord();
         initView();
         isClosed = false;
     }
@@ -218,6 +241,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         ivStartStop = findViewById(R.id.ivStartStop);
         ivStartStop.setOnClickListener(this);
 
+        flVideo = findViewById(R.id.flVideo);
         svVideo = findViewById(R.id.svVideo);
         mSurfaceHolder = svVideo.getHolder();
         mSurfaceHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
@@ -241,7 +265,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                     }
                 } catch (IOException e) {
                     e.printStackTrace();
-                    ToastUtils.shortShow(RecordVideoDialogActivity.this, "相机无法使用");
+                    ToastUtils.shortShow(RecordVideoActivity.this, "相机无法使用");
                 }
                 if (mCurModel == MODEL_PLAY_PAUSE) {
                     rePlayVideo();
@@ -305,7 +329,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
                 if (mCurModel < MODEL_RECORD_END)
                     return;
                 List<String> path = new ArrayList<>();
-//                path.add(mVideoFile.getPath());
+                path.add(mVideoFile.getPath());
 //				prepareLessonsManager.uploadFile(path, true);
                 break;
             case R.id.ivPlay:
@@ -562,6 +586,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
     }
 
     private void setProgressText(int cur) {
+//        tvVideoTime.setText(String.format(this.getResources().getString(R.string.second), cur));
         tvVideoTime.setText(formatTime(cur));
     }
 
@@ -630,7 +655,7 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             @Override
             public void onInfo(MediaRecorder mr, int what, int extra) {
                 if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_DURATION_REACHED) {
-                    ToastUtils.shortShow(RecordVideoDialogActivity.this, "录像已达最大时长");
+                    ToastUtils.shortShow(RecordVideoActivity.this, "录像已达最大时长");
                     mRecorder.stop();
                     mRecorder.release();
                     mRecorder = null;
@@ -712,7 +737,6 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             int recordSecond = startRecordSecond + second;
             currentRecordSecond = recordSecond;
             setProgressText(recordSecond);
-            Log.e("lyq", second + "");
             mHandler.postDelayed(recordProgressTextTask, 200);
         }
     }
@@ -726,6 +750,14 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
             setProgressText(mMediaPlayer.getCurrentPosition() / 1000);
             mHandler.postDelayed(playProgressTextTask, 200);
         }
+    }
+
+    Bitmap getEndFrame() {
+        MediaMetadataRetriever media = new MediaMetadataRetriever();
+        media.setDataSource(mVideoFile.getPath());
+        Bitmap bitmap = media.getFrameAtTime();
+        media.release();
+        return bitmap;
     }
 
     private void changeVideo() {
@@ -788,7 +820,6 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
 
     /**
      * 设置camera基础属性及最佳预览比例
-     *
      * @param camera Camera
      * @return Camera
      */
@@ -951,11 +982,9 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         asyncTask = new MergeFileAsyncTask(this) {
             @Override
             void onComplete() {
-                super.onComplete();
-                if (asyncTask != null && !asyncTask.isCancelled()) {
+                if (asyncTask != null && !asyncTask.isCancelled())
                     asyncTask.cancel(true);
-                    asyncTask = null;
-                }
+                asyncTask = null;
             }
         };
         asyncTask.execute(saveVideoPath, currentVideoFilePath);
@@ -993,9 +1022,8 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         protected Object doInBackground(String... strings) {
             try {
                 String[] str = new String[]{strings[0], strings[1]};
-                Log.e("path", "save:   " + strings[0] + "\ncurrent:   " + strings[1]);
                 //将2个视频文件合并到 append.mp4文件下
-                VideoUtils.appendVideo(getSDPath(context) + "append.mp4", str);
+                VideoUtils.appendVideo( getSDPath(context) + "append.mp4", str);
                 File reName = new File(strings[0]);
                 File f = new File(getSDPath(context) + "append.mp4");
                 //再将合成的append.mp4视频文件 移动到 saveVideoPath 路径下
@@ -1024,7 +1052,6 @@ public class RecordVideoDialogActivity extends AppCompatActivity implements View
         }
 
         void onComplete() {
-            this.context = null;
         }
     }
 }
