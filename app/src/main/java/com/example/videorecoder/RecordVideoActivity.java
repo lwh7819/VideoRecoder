@@ -3,6 +3,7 @@ package com.example.videorecoder;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.hardware.Camera;
@@ -42,7 +43,7 @@ import java.util.List;
 
 public class RecordVideoActivity extends AppCompatActivity implements View.OnClickListener {
 
-    private TextView tvSubmit;
+
 
     private SurfaceView svVideo;
 
@@ -50,7 +51,7 @@ public class RecordVideoActivity extends AppCompatActivity implements View.OnCli
 
     private ImageView ivRecord;
 
-    private TextView tvBack;
+
 
     private TextView tvVideoTime;
 
@@ -221,10 +222,6 @@ public class RecordVideoActivity extends AppCompatActivity implements View.OnCli
     }
 
     private void initView() {
-        tvBack = findViewById(R.id.tvBack);
-        tvBack.setOnClickListener(this);
-        tvSubmit = findViewById(R.id.tvSubmit);
-        tvSubmit.setOnClickListener(this);
         ivPlay = findViewById(R.id.ivPlay);
         ivPlay.setVisibility(View.GONE);
         ivPlay.setOnClickListener(this);
@@ -325,13 +322,6 @@ public class RecordVideoActivity extends AppCompatActivity implements View.OnCli
                     reRecordVideo();
                 }
                 break;
-            case R.id.tvSubmit:
-                if (mCurModel < MODEL_RECORD_END)
-                    return;
-                List<String> path = new ArrayList<>();
-                path.add(mVideoFile.getPath());
-//				prepareLessonsManager.uploadFile(path, true);
-                break;
             case R.id.ivPlay:
                 if (mCurModel == MODEL_RECORD_END) {
                     playVideo();
@@ -387,9 +377,6 @@ public class RecordVideoActivity extends AppCompatActivity implements View.OnCli
                         mCurModel = MODEL_RECORD_END;
                     }
                 }
-                break;
-            case R.id.tvBack:
-                finish();
                 break;
             case R.id.ivChangeVideo:
                 changeVideo();

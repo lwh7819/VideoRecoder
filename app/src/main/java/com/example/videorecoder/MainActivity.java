@@ -15,7 +15,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.hello_world).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivity(new Intent(MainActivity.this, RecordVideoDialogActivity.class));
+                startActivity(new Intent(MainActivity.this, RecordVideoDialogActivity1.class));
             }
         });
     }
